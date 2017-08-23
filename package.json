@@ -1,6 +1,6 @@
 {
   "name": "rabbitmq-boilerplate",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "RabbitMQ Wrapper library",
   "repository": {
     "type": "git",

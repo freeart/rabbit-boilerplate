@@ -1,8 +1,11 @@
 const amqp = require('amqplib/callback_api'),
+    EventEmitter = require('events'),
     domain = require('domain');
 
-class Wrapper {
+class Wrapper extends EventEmitter {
     constructor() {
+        super();
+
         this.connectString = null;
         this.conn = {};
         this.channelPool = {};
@@ -21,7 +24,7 @@ class Wrapper {
                 cb && cb(err);
             });
         } else {
-            cb && cb(err);
+            cb && setImmediate(() => cb(err));
         }
     }
 
@@ -48,7 +51,7 @@ class Wrapper {
                         }, 1000 * 5 * 60);
                         const d = domain.create();
 
-                        d.run(()=>{
+                        d.run(() => {
                             cb(null, {
                                 payload: msg.content.toString(),
                                 release: () => {
@@ -72,6 +75,7 @@ class Wrapper {
 
                         d.on("error", (e) => {
                             setTimeout(() => {
+                                this.emit('error', e);
                                 //skip error message
                                 ch.ack(msg);
                                 clearTimeout(timeoutID);
@@ -105,11 +109,11 @@ class Wrapper {
 
     __connect(name, cb) {
         if (!this.connectString) {
-            return this.__bail("connect string is empty", null, cb)
+            return setImmediate(() => this.__bail("connect string is empty", null, cb))
         }
 
         if (this.conn[name]) {
-            return setImmediate(cb, null, this.conn[name])
+            return setImmediate(() => cb(null, this.conn[name]))
         }
         try {
             amqp.connect(this.connectString, (err, conn) => {
@@ -127,7 +131,8 @@ class Wrapper {
                         }, 5000)
                     }
                 });
-                conn.on('error', () => {
+                conn.on('error', (err) => {
+                    this.emit('error', err);
                     //console.log("connection closed by error")
                     this.channelPool[name] = null;
                     this.conn[name] = null;
@@ -140,17 +145,17 @@ class Wrapper {
                 cb(null, conn);
             });
         } catch (e) {
-            return this.__bail(e, null, cb)
+            return setImmediate(() => this.__bail(e, null, cb))
         }
     }
 
     __channel(name, isConfirmChannel, cb) {
         let method = isConfirmChannel ? "createConfirmChannel" : "createChannel";
         if (this.channelPool[name] && this.channelPool[name][method]) {
-            return setImmediate(cb, null, this.channelPool[name][method])
+            return setImmediate(() => cb(null, this.channelPool[name][method]))
         }
         if (!this.conn[name]) {
-            return cb("channel is closed")
+            return setImmediate(() => cb("channel is closed"));
         }
         try {
             this.conn[name][method]((err, ch) => {
@@ -163,7 +168,7 @@ class Wrapper {
                 cb(null, ch);
             })
         } catch (e) {
-            cb(e);
+            setImmediate(() => cb(e));
         }
     }
 }

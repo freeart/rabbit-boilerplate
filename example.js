@@ -5,11 +5,13 @@ const rabbitmq = new Rabbitmq();
 
 rabbitmq.config("amqp://localhost");
 
+rabbitmq.on("error", console.error)
+
 function sendSim() {
     async.retry({times: 3, interval: 5000}, (cb) => {
         rabbitmq.send({"value": Math.random()}, "queuename", cb);
     }, (err) => {
-        console.log("sended", err && err.toString());
+        //console.log("sended", err && err.toString());
         setTimeout(sendSim, 10000);
     })
 }
@@ -20,7 +22,7 @@ function listen() {
             console.log("try to restart", err.toString())
             return setTimeout(listen, 5000)
         }
-        console.log("received", msg.payload);
+        //console.log("received", msg.payload);
         msg.release();
     });
 }
