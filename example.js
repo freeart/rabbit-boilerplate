@@ -8,21 +8,20 @@ rabbitmq.config("amqp://localhost");
 rabbitmq.on("error", console.error)
 
 function sendSim() {
-    async.retry({times: 3, interval: 5000}, (cb) => {
-        rabbitmq.send({"value": Math.random()}, "queuename", cb);
-    }, (err) => {
-        //console.log("sended", err && err.toString());
+    console.log("sending")
+    rabbitmq.send({"value": Math.random()}, "queuename2").then(() => {
+        console.log("sended")
         setTimeout(sendSim, 10000);
-    })
+    }).catch(console.error)
 }
 
 function listen() {
-    rabbitmq.listen("queuename", (err, msg) => {
+    rabbitmq.listen("queuename2", (err, msg) => {
         if (err) {
             console.log("try to restart", err.toString())
             return setTimeout(listen, 5000)
         }
-        //console.log("received", msg.payload);
+        console.log("received", msg.payload);
         msg.release();
     });
 }

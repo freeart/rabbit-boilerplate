@@ -89,22 +89,31 @@ class Wrapper extends EventEmitter {
     }
 
     send(msg, queue, cb) {
-        let payload = JSON.stringify(msg);
-        this.__connect(queue, (err, conn) => {
-            if (err) {
-                return this.__bail(err, conn, cb)
-            }
-
-            this.__channel(queue, true, (err, ch) => {
+        return new Promise((resolve, reject) => {
+            let payload = JSON.stringify(msg);
+            this.__connect(queue, (err, conn) => {
                 if (err) {
-                    return this.__bail(err, conn, cb)
+                    return this.__bail(err, conn, (err)=>{
+                        cb && cb(err);
+                        reject(err);
+                    });
                 }
-                ch.assertQueue(queue, {durable: true});
-                ch.publish('', queue, new Buffer(payload), {"persistent": true}, (err) => {
-                    cb(err);
+
+                this.__channel(queue, true, (err, ch) => {
+                    if (err) {
+                        return this.__bail(err, conn, (err)=>{
+                            cb && cb(err);
+                            reject(err);
+                        })
+                    }
+                    ch.assertQueue(queue, {durable: true});
+                    ch.publish('', queue, new Buffer(payload), {"persistent": true}, (err) => {
+                        cb && cb(err);
+                        resolve();
+                    });
                 });
             });
-        });
+        })
     }
 
     __connect(name, cb) {
