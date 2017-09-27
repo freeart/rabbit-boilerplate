@@ -10,7 +10,8 @@ class Wrapper extends EventEmitter {
         this.conn = {};
         this.channelPool = {};
         this.callback = {
-            listen: {}
+            listen: {},
+			exchange: {}
         };
     }
 
@@ -88,6 +89,32 @@ class Wrapper extends EventEmitter {
         });
     }
 
+	stream(name, cb){
+		this.__connect(name, (err, conn) => {
+			if (err) {
+				return this.__bail(err, conn, cb)
+			}
+			this.__channel(name, false, (err, ch) => {
+				if (err) {
+					return this.__bail(err, conn, cb)
+				}
+
+				this.callback.exchange[name] = cb;
+
+				ch.assertExchange(name, 'fanout', { durable: false });
+				ch.assertQueue('', { exclusive: true }, (err, ok) => {
+					let q = ok.queue;
+					ch.bindQueue(q, name, '');
+					ch.consume(q, (msg) => {
+						msg && cb(null, {
+							payload: msg.content.toString()
+						});
+					}, { noAck: true });
+				});
+			});
+		});
+	}
+
     send(msg, queue, cb) {
         return new Promise((resolve, reject) => {
             let payload = JSON.stringify(msg);
@@ -116,6 +143,35 @@ class Wrapper extends EventEmitter {
         })
     }
 
+	broadcast(msg, name, cb){
+		return new Promise((resolve, reject) => {
+			let payload = JSON.stringify(msg);
+			this.__connect(name, (err, conn) => {
+				if (err) {
+					return this.__bail(err, conn, (err)=>{
+						cb && cb(err);
+						reject(err);
+					});
+				}
+
+				this.__channel(name, false, (err, ch) => {
+					if (err) {
+						return this.__bail(err, conn, (err)=>{
+							cb && cb(err);
+							reject(err);
+						})
+					}
+					ch.assertExchange(name, 'fanout', { durable: false });
+					ch.publish(name, '', new Buffer(payload));
+					setTimeout(()=>{
+						cb && cb();
+						resolve();
+					}, 50);
+				});
+			});
+		})
+	}
+
     __connect(name, cb) {
         if (!this.connectString) {
             return setImmediate(() => this.__bail("connect string is empty", null, cb))
@@ -139,6 +195,11 @@ class Wrapper extends EventEmitter {
                             this.listen(name, this.callback.listen[name]);
                         }, 5000)
                     }
+					if (this.callback.exchange[name]) {
+						setTimeout(() => {
+							this.stream(name, this.callback.exchange[name]);
+						}, 5000)
+					}
                 });
                 conn.on('error', (err) => {
                     this.emit('error', err);
@@ -150,6 +211,11 @@ class Wrapper extends EventEmitter {
                             this.listen(name, this.callback.listen[name]);
                         }, 5000)
                     }
+					if (this.callback.exchange[name]) {
+						setTimeout(() => {
+							this.stream(name, this.callback.exchange[name]);
+						}, 5000)
+					}
                 });
                 cb(null, conn);
             });
