@@ -9,7 +9,7 @@ rabbitmq.on("error", console.error)
 
 function sendSim() {
 	console.log("sending")
-	rabbitmq.send({"value": Math.random()}, "queuename").then(() => {
+	rabbitmq.send({"value": Math.random()}, {"queue": "queuename", "expiration": 15000}).then(() => {
 		console.log("sended")
 		setTimeout(sendSim, 10000);
 	}).catch(console.error)

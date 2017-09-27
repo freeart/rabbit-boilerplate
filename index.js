@@ -115,7 +115,16 @@ class Wrapper extends EventEmitter {
 		});
 	}
 
-    send(msg, queue, cb) {
+    send(msg, queueOrConfig, cb) {
+		let config = {};
+		let queue;
+		if (Object.prototype.toString.call(queueOrConfig) == "[object Object]"){
+			queue = queueOrConfig.queue;
+			delete queueOrConfig.queue;
+			config = queueOrConfig;
+		}else{
+			queue = queueOrConfig;
+		}
         return new Promise((resolve, reject) => {
             let payload = JSON.stringify(msg);
             this.__connect(queue, (err, conn) => {
@@ -134,7 +143,7 @@ class Wrapper extends EventEmitter {
                         })
                     }
                     ch.assertQueue(queue, {durable: true});
-                    ch.publish('', queue, new Buffer(payload), {"persistent": true}, (err) => {
+                    ch.publish('', queue, new Buffer(payload), Object.assign(config, {"persistent": true}), (err) => {
                         cb && cb(err);
                         resolve();
                     });
