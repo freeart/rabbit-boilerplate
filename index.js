@@ -1,95 +1,95 @@
 const amqp = require('amqplib/callback_api'),
-    EventEmitter = require('events'),
-    domain = require('domain');
+	EventEmitter = require('events'),
+	domain = require('domain');
 
 class Wrapper extends EventEmitter {
-    constructor() {
-        super();
+	constructor() {
+		super();
 
-        this.connectString = null;
-        this.conn = {};
-        this.channelPool = {};
-        this.callback = {
-            listen: {},
+		this.connectString = null;
+		this.conn = {};
+		this.channelPool = {};
+		this.callback = {
+			listen: {},
 			exchange: {}
-        };
-    }
+		};
+	}
 
-    config(connectString) {
-        this.connectString = connectString;
-    }
+	config(connectString) {
+		this.connectString = connectString;
+	}
 
-    __bail(err, conn, cb) {
-        if (conn) {
-            conn.close(() => {
-                cb && cb(err);
-            });
-        } else {
-            cb && setImmediate(() => cb(err));
-        }
-    }
+	__bail(err, conn, cb) {
+		if (conn) {
+			conn.close(() => {
+				cb && cb(err);
+			});
+		} else {
+			cb && setImmediate(() => cb(err));
+		}
+	}
 
-    listen(queue, cb, prefetch) {
-        this.__connect(queue, (err, conn) => {
-            if (err) {
-                return this.__bail(err, conn, cb)
-            }
+	listen(queue, cb, prefetch) {
+		this.__connect(queue, (err, conn) => {
+			if (err) {
+				return this.__bail(err, conn, cb)
+			}
 
-            this.__channel(queue, true, (err, ch) => {
-                if (err) {
-                    return this.__bail(err, conn, cb)
-                }
+			this.__channel(queue, true, (err, ch) => {
+				if (err) {
+					return this.__bail(err, conn, cb)
+				}
 
-                this.callback.listen[queue] = cb;
+				this.callback.listen[queue] = cb;
 
-                ch.assertQueue(queue, {durable: true});
-                ch.prefetch(prefetch || 1);
+				ch.assertQueue(queue, {durable: true});
+				ch.prefetch(prefetch || 1);
 
-                ch.consume(queue, (msg) => {
-                    if (msg) {
-                        let timeoutID = setTimeout(() => {
-                            this.__bail("process frozen", conn, cb)
-                        }, 1000 * 5 * 60);
-                        const d = domain.create();
+				ch.consume(queue, (msg) => {
+					if (msg) {
+						let timeoutID = setTimeout(() => {
+							this.__bail("process frozen", conn, cb)
+						}, 1000 * 5 * 60);
+						const d = domain.create();
 
-                        d.run(() => {
-                            cb(null, {
-                                payload: msg.content.toString(),
-                                release: () => {
-                                    try {
-                                        clearTimeout(timeoutID);
-                                        ch.ack(msg);
-                                    } catch (e) {
-                                        this.__bail(e, conn)
-                                    }
-                                },
-                                reject: () => {
-                                    try {
-                                        clearTimeout(timeoutID);
-                                        ch.nack(msg);
-                                    } catch (e) {
-                                        this.__bail(e, conn)
-                                    }
-                                }
-                            });
-                        })
+						d.run(() => {
+							cb(null, {
+								payload: msg.content.toString(),
+								release: () => {
+									try {
+										clearTimeout(timeoutID);
+										ch.ack(msg);
+									} catch (e) {
+										this.__bail(e, conn)
+									}
+								},
+								reject: () => {
+									try {
+										clearTimeout(timeoutID);
+										ch.nack(msg);
+									} catch (e) {
+										this.__bail(e, conn)
+									}
+								}
+							});
+						})
 
-                        d.on("error", (e) => {
-                            setTimeout(() => {
-                                this.emit('error', e);
-                                //skip error message
-                                ch.ack(msg);
-                                clearTimeout(timeoutID);
-                                //console.error(e.toString())
-                            }, 5000)
-                        })
-                    }
-                }, {noAck: false});
-            });
-        });
-    }
+						d.on("error", (e) => {
+							setTimeout(() => {
+								this.emit('error', e);
+								//skip error message
+								ch.ack(msg);
+								clearTimeout(timeoutID);
+								//console.error(e.toString())
+							}, 5000)
+						})
+					}
+				}, {noAck: false});
+			});
+		});
+	}
 
-	stream(name, cb){
+	stream(name, cb) {
 		this.__connect(name, (err, conn) => {
 			if (err) {
 				return this.__bail(err, conn, cb)
@@ -101,63 +101,63 @@ class Wrapper extends EventEmitter {
 
 				this.callback.exchange[name] = cb;
 
-				ch.assertExchange(name, 'fanout', { durable: false });
-				ch.assertQueue('', { exclusive: true }, (err, ok) => {
+				ch.assertExchange(name, 'fanout', {durable: false});
+				ch.assertQueue('', {exclusive: true}, (err, ok) => {
 					let q = ok.queue;
 					ch.bindQueue(q, name, '');
 					ch.consume(q, (msg) => {
 						msg && cb(null, {
 							payload: msg.content.toString()
 						});
-					}, { noAck: true });
+					}, {noAck: true});
 				});
 			});
 		});
 	}
 
-    send(msg, queueOrConfig, cb) {
+	send(msg, queueOrConfig, cb) {
 		let config = {};
 		let queue;
-		if (Object.prototype.toString.call(queueOrConfig) == "[object Object]"){
+		if (Object.prototype.toString.call(queueOrConfig) == "[object Object]") {
 			queue = queueOrConfig.queue;
 			delete queueOrConfig.queue;
 			config = queueOrConfig;
-		}else{
+		} else {
 			queue = queueOrConfig;
 		}
-        return new Promise((resolve, reject) => {
-            let payload = JSON.stringify(msg);
-            this.__connect(queue, (err, conn) => {
-                if (err) {
-                    return this.__bail(err, conn, (err)=>{
-                        cb && cb(err);
-                        reject(err);
-                    });
-                }
+		return new Promise((resolve, reject) => {
+			let payload = JSON.stringify(msg);
+			this.__connect(queue, (err, conn) => {
+				if (err) {
+					return this.__bail(err, conn, (err) => {
+						cb && cb(err);
+						reject(err);
+					});
+				}
 
-                this.__channel(queue, true, (err, ch) => {
-                    if (err) {
-                        return this.__bail(err, conn, (err)=>{
-                            cb && cb(err);
-                            reject(err);
-                        })
-                    }
-                    ch.assertQueue(queue, {durable: true});
-                    ch.publish('', queue, new Buffer(payload), Object.assign(config, {"persistent": true}), (err) => {
-                        cb && cb(err);
-                        resolve();
-                    });
-                });
-            });
-        })
-    }
+				this.__channel(queue, true, (err, ch) => {
+					if (err) {
+						return this.__bail(err, conn, (err) => {
+							cb && cb(err);
+							reject(err);
+						})
+					}
+					ch.assertQueue(queue, {durable: true});
+					ch.publish('', queue, new Buffer(payload), Object.assign(config, {"persistent": true}), (err) => {
+						cb && cb(err);
+						resolve();
+					});
+				});
+			});
+		})
+	}
 
-	broadcast(msg, name, cb){
+	broadcast(msg, name, cb) {
 		return new Promise((resolve, reject) => {
 			let payload = JSON.stringify(msg);
 			this.__connect(name, (err, conn) => {
 				if (err) {
-					return this.__bail(err, conn, (err)=>{
+					return this.__bail(err, conn, (err) => {
 						cb && cb(err);
 						reject(err);
 					});
@@ -165,14 +165,14 @@ class Wrapper extends EventEmitter {
 
 				this.__channel(name, false, (err, ch) => {
 					if (err) {
-						return this.__bail(err, conn, (err)=>{
+						return this.__bail(err, conn, (err) => {
 							cb && cb(err);
 							reject(err);
 						})
 					}
-					ch.assertExchange(name, 'fanout', { durable: false });
+					ch.assertExchange(name, 'fanout', {durable: false});
 					ch.publish(name, '', new Buffer(payload));
-					setTimeout(()=>{
+					setTimeout(() => {
 						cb && cb();
 						resolve();
 					}, 50);
@@ -181,80 +181,80 @@ class Wrapper extends EventEmitter {
 		})
 	}
 
-    __connect(name, cb) {
-        if (!this.connectString) {
-            return setImmediate(() => this.__bail("connect string is empty", null, cb))
-        }
+	__connect(name, cb) {
+		if (!this.connectString) {
+			return setImmediate(() => this.__bail("connect string is empty", null, cb))
+		}
 
-        if (this.conn[name]) {
-            return setImmediate(() => cb(null, this.conn[name]))
-        }
-        try {
-            amqp.connect(this.connectString, (err, conn) => {
-                if (err) {
-                    return this.__bail(err, conn, cb)
-                }
-                this.conn[name] = conn;
-                conn.on('close', () => {
-                    //console.log("connection closed")
-                    this.channelPool[name] = null;
-                    this.conn[name] = null;
-                    if (this.callback.listen[name]) {
-                        setTimeout(() => {
-                            this.listen(name, this.callback.listen[name]);
-                        }, 5000)
-                    }
+		if (this.conn[name]) {
+			return setImmediate(() => cb(null, this.conn[name]))
+		}
+		try {
+			amqp.connect(this.connectString, (err, conn) => {
+				if (err) {
+					return this.__bail(err, conn, cb)
+				}
+				this.conn[name] = conn;
+				conn.on('close', () => {
+					//console.log("connection closed")
+					this.channelPool[name] = null;
+					this.conn[name] = null;
+					if (this.callback.listen[name]) {
+						setTimeout(() => {
+							this.listen(name, this.callback.listen[name]);
+						}, 5000)
+					}
 					if (this.callback.exchange[name]) {
 						setTimeout(() => {
 							this.stream(name, this.callback.exchange[name]);
 						}, 5000)
 					}
-                });
-                conn.on('error', (err) => {
-                    this.emit('error', err);
-                    //console.log("connection closed by error")
-                    this.channelPool[name] = null;
-                    this.conn[name] = null;
-                    if (this.callback.listen[name]) {
-                        setTimeout(() => {
-                            this.listen(name, this.callback.listen[name]);
-                        }, 5000)
-                    }
+				});
+				conn.on('error', (err) => {
+					this.emit('error', err);
+					//console.log("connection closed by error")
+					this.channelPool[name] = null;
+					this.conn[name] = null;
+					if (this.callback.listen[name]) {
+						setTimeout(() => {
+							this.listen(name, this.callback.listen[name]);
+						}, 5000)
+					}
 					if (this.callback.exchange[name]) {
 						setTimeout(() => {
 							this.stream(name, this.callback.exchange[name]);
 						}, 5000)
 					}
-                });
-                cb(null, conn);
-            });
-        } catch (e) {
-            return setImmediate(() => this.__bail(e, null, cb))
-        }
-    }
+				});
+				cb(null, conn);
+			});
+		} catch (e) {
+			return setImmediate(() => this.__bail(e, null, cb))
+		}
+	}
 
-    __channel(name, isConfirmChannel, cb) {
-        let method = isConfirmChannel ? "createConfirmChannel" : "createChannel";
-        if (this.channelPool[name] && this.channelPool[name][method]) {
-            return setImmediate(() => cb(null, this.channelPool[name][method]))
-        }
-        if (!this.conn[name]) {
-            return setImmediate(() => cb("channel is closed"));
-        }
-        try {
-            this.conn[name][method]((err, ch) => {
-                if (err) {
-                    return cb(err)
-                }
-                this.channelPool[name] = this.channelPool[name] || {};
-                this.channelPool[name][method] = this.channelPool[name][method] || {};
-                this.channelPool[name][method] = ch;
-                cb(null, ch);
-            })
-        } catch (e) {
-            setImmediate(() => cb(e));
-        }
-    }
+	__channel(name, isConfirmChannel, cb) {
+		let method = isConfirmChannel ? "createConfirmChannel" : "createChannel";
+		if (this.channelPool[name] && this.channelPool[name][method]) {
+			return setImmediate(() => cb(null, this.channelPool[name][method]))
+		}
+		if (!this.conn[name]) {
+			return setImmediate(() => cb("channel is closed"));
+		}
+		try {
+			this.conn[name][method]((err, ch) => {
+				if (err) {
+					return cb(err)
+				}
+				this.channelPool[name] = this.channelPool[name] || {};
+				this.channelPool[name][method] = this.channelPool[name][method] || {};
+				this.channelPool[name][method] = ch;
+				cb(null, ch);
+			})
+		} catch (e) {
+			setImmediate(() => cb(e));
+		}
+	}
 }
 
 module.exports = Wrapper;
