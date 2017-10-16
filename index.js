@@ -78,7 +78,11 @@ class Wrapper extends EventEmitter {
 							setTimeout(() => {
 								this.emit('error', e);
 								//skip error message
-								ch.ack(msg);
+								try {
+									ch.ack(msg);
+								}catch (e){
+									this.__bail(e, conn)
+								}
 								clearTimeout(timeoutID);
 								//console.error(e.toString())
 							}, 5000)
