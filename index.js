@@ -40,7 +40,10 @@ class Wrapper extends EventEmitter {
 					return this.__bail(err, conn, cb)
 				}
 
-				this.callback.listen[queue] = cb;
+				this.callback.listen[queue] = {
+					cb: cb,
+					done: true
+				};
 
 				ch.assertQueue(queue, {durable: true});
 				ch.prefetch(prefetch || 1);
@@ -59,6 +62,7 @@ class Wrapper extends EventEmitter {
 									try {
 										clearTimeout(timeoutID);
 										ch.ack(msg);
+										msg = null;
 									} catch (e) {
 										this.__bail(e, conn)
 									}
@@ -67,6 +71,7 @@ class Wrapper extends EventEmitter {
 									try {
 										clearTimeout(timeoutID);
 										ch.nack(msg);
+										msg = null;
 									} catch (e) {
 										this.__bail(e, conn)
 									}
@@ -79,7 +84,7 @@ class Wrapper extends EventEmitter {
 								this.emit('error', e);
 								//skip error message
 								try {
-									ch.ack(msg);
+									msg && ch.ack(msg);
 								}catch (e){
 									this.__bail(e, conn)
 								}
@@ -153,6 +158,8 @@ class Wrapper extends EventEmitter {
 					});
 				});
 			});
+		}).catch((err)=>{
+
 		})
 	}
 
@@ -182,6 +189,8 @@ class Wrapper extends EventEmitter {
 					}, 50);
 				});
 			});
+		}).catch((err)=>{
+
 		})
 	}
 
@@ -203,9 +212,13 @@ class Wrapper extends EventEmitter {
 					//console.log("connection closed")
 					this.channelPool[name] = null;
 					this.conn[name] = null;
-					if (this.callback.listen[name]) {
+					if (this.callback.listen[name] && this.callback.listen[name].done) {
+						this.callback.listen[name].done = false;
 						setTimeout(() => {
-							this.listen(name, this.callback.listen[name]);
+							if (!this.callback.listen[name].done) {
+								this.callback.listen[name].done = true;
+								this.listen(name, this.callback.listen[name].cb);
+							}
 						}, 5000)
 					}
 					if (this.callback.exchange[name]) {
@@ -219,9 +232,13 @@ class Wrapper extends EventEmitter {
 					//console.log("connection closed by error")
 					this.channelPool[name] = null;
 					this.conn[name] = null;
-					if (this.callback.listen[name]) {
+					if (this.callback.listen[name] && this.callback.listen[name].done) {
+						this.callback.listen[name].done = false;
 						setTimeout(() => {
-							this.listen(name, this.callback.listen[name]);
+							if (!this.callback.listen[name].done) {
+								this.callback.listen[name].done = true;
+								this.listen(name, this.callback.listen[name].cb);
+							}
 						}, 5000)
 					}
 					if (this.callback.exchange[name]) {
