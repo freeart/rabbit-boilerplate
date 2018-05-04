@@ -1,3 +1,5 @@
+"use strict";
+
 const amqp = require('amqplib/callback_api'),
 	EventEmitter = require('events'),
 	domain = require('domain');
