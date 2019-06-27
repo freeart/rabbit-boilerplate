@@ -1,6 +1,6 @@
 {
   "name": "rabbitmq-boilerplate",
-  "version": "1.0.9",
+  "version": "1.0.10-beta",
   "description": "RabbitMQ Wrapper library",
   "repository": {
     "type": "git",
@@ -13,7 +13,6 @@
   "author": "Nekrasov Pavel",
   "license": "ISC",
   "dependencies": {
-    "amqplib": "^0.5.1",
-    "async": "^2.5.0"
+    "amqplib": "^0.5.3"
   }
 }

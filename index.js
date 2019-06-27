@@ -12,8 +12,7 @@ class Wrapper extends EventEmitter {
 		this.conn = {};
 		this.channelPool = {};
 		this.callback = {
-			listen: {},
-			exchange: {}
+			listen: {}
 		};
 	}
 
@@ -31,29 +30,44 @@ class Wrapper extends EventEmitter {
 		}
 	}
 
-	listen(queue, cb, prefetch) {
-		this.__connect(queue, (err, conn) => {
+	listen({ queue, exchange, prefetch = 1, ack = true, durable = true, autoDelete = true }, cb) {
+		this.__connect(`${queue}.${exchange}`, (err, conn) => {
 			if (err) {
-				return this.__bail(err, conn, cb)
+				return cb(err)
 			}
 
-			this.__channel(queue, true, (err, ch) => {
+			this.__channel(`${queue}.${exchange}`, ack, async (err, ch) => {
 				if (err) {
-					return this.__bail(err, conn, cb)
+					return cb(err)
 				}
 
-				this.callback.listen[queue] = {
+				this.callback.listen[`${queue}.${exchange}`] = {
 					cb: cb,
 					done: true
 				};
 
-				ch.assertQueue(queue, {durable: true});
-				ch.prefetch(prefetch || 1);
+				let consumeQueueName
+				try {
+					if (exchange) {
+						await ch.assertExchange(exchange, 'direct', { durable, autoDelete });
+						const ok = await ch.assertQueue('', { exclusive: true });
+						consumeQueueName = ok.queue
+						await ch.bindQueue(ok.queue, exchange, queue);
+					} else if (queue) {
+						consumeQueueName = queue
+						await ch.assertQueue(queue, { durable });
+					} else {
+						this.__bail(new Error("queue and exchange are empty"), conn, cb)
+					}
+					await ch.prefetch(prefetch);
+				} catch (e) {
+					this.__bail(new Error("queue and exchange are empty"), conn, cb)
+				}
 
-				ch.consume(queue, (msg) => {
+				ch.consume(consumeQueueName, (msg) => {
 					if (msg) {
 						let timeoutID = setTimeout(() => {
-							this.__bail("process frozen", conn, cb)
+							this.__bail(new Error("process frozen"), conn, cb)
 						}, 1000 * 5 * 60);
 						const d = domain.create();
 
@@ -84,121 +98,59 @@ class Wrapper extends EventEmitter {
 						d.on("error", (e) => {
 							setTimeout(() => {
 								this.emit('error', e);
-								//skip error message
 								try {
 									msg && ch.ack(msg);
-								}catch (e){
+								} catch (e) {
 									this.__bail(e, conn)
 								}
 								clearTimeout(timeoutID);
-								//console.error(e.toString())
 							}, 5000)
 						})
 					}
-				}, {noAck: false});
+				}, { noAck: !ack });
 			});
 		});
 	}
 
-	stream(name, cb) {
-		this.__connect(name, (err, conn) => {
-			if (err) {
-				return this.__bail(err, conn, cb)
-			}
-			this.__channel(name, false, (err, ch) => {
+	send({ msg, queue, exchange, persistent = true, ack = true, durable = true, autoDelete = true }, cb) {
+		return new Promise((resolve, reject) => {
+			let payload = JSON.stringify(msg);
+			this.__connect(`${queue}.${exchange}`, (err, conn) => {
 				if (err) {
-					return this.__bail(err, conn, cb)
+					return this.__bail(err, conn, (err) => {
+						cb && cb(err);
+						reject(err);
+					});
 				}
 
-				this.callback.exchange[name] = cb;
-
-				ch.assertExchange(name, 'fanout', {durable: false});
-				ch.assertQueue('', {exclusive: true}, (err, ok) => {
-					let q = ok.queue;
-					ch.bindQueue(q, name, '');
-					ch.consume(q, (msg) => {
-						msg && cb(null, {
-							payload: msg.content.toString()
+				this.__channel(`${queue}.${exchange}`, ack, async (err, ch) => {
+					if (err) {
+						return this.__bail(err, conn, (err) => {
+							cb && cb(err);
+							reject(err);
+						})
+					}
+					if (exchange) {
+						await ch.assertExchange(exchange, 'direct', { durable, autoDelete });
+						ch.publish(exchange, queue, Buffer.from(payload), { persistent }, (err) => {
+							cb && cb(err);
+							resolve();
 						});
-					}, {noAck: true});
-				});
-			});
-		});
-	}
-
-	send(msg, queueOrConfig, cb) {
-		let config = {};
-		let queue;
-		if (Object.prototype.toString.call(queueOrConfig) == "[object Object]") {
-			queue = queueOrConfig.queue;
-			delete queueOrConfig.queue;
-			config = queueOrConfig;
-		} else {
-			queue = queueOrConfig;
-		}
-		return new Promise((resolve, reject) => {
-			let payload = JSON.stringify(msg);
-			this.__connect(queue, (err, conn) => {
-				if (err) {
-					return this.__bail(err, conn, (err) => {
-						cb && cb(err);
-						reject(err);
-					});
-				}
-
-				this.__channel(queue, true, (err, ch) => {
-					if (err) {
-						return this.__bail(err, conn, (err) => {
+					} else {
+						await ch.assertQueue(queue, { durable });
+						ch.publish('', queue, Buffer.from(payload), { persistent }, (err) => {
 							cb && cb(err);
-							reject(err);
-						})
+							resolve();
+						});
 					}
-					ch.assertQueue(queue, {durable: true});
-					ch.publish('', queue, new Buffer(payload), Object.assign(config, {"persistent": true}), (err) => {
-						cb && cb(err);
-						resolve();
-					});
 				});
 			});
-		}).catch((err)=>{
-
-		})
-	}
-
-	broadcast(msg, name, cb) {
-		return new Promise((resolve, reject) => {
-			let payload = JSON.stringify(msg);
-			this.__connect(name, (err, conn) => {
-				if (err) {
-					return this.__bail(err, conn, (err) => {
-						cb && cb(err);
-						reject(err);
-					});
-				}
-
-				this.__channel(name, false, (err, ch) => {
-					if (err) {
-						return this.__bail(err, conn, (err) => {
-							cb && cb(err);
-							reject(err);
-						})
-					}
-					ch.assertExchange(name, 'fanout', {durable: false});
-					ch.publish(name, '', new Buffer(payload));
-					setTimeout(() => {
-						cb && cb();
-						resolve();
-					}, 50);
-				});
-			});
-		}).catch((err)=>{
-
 		})
 	}
 
 	__connect(name, cb) {
 		if (!this.connectString) {
-			return setImmediate(() => this.__bail("connect string is empty", null, cb))
+			return setImmediate(() => this.__bail(new Error("connect string is empty"), null, cb))
 		}
 
 		if (this.conn[name]) {
@@ -211,7 +163,6 @@ class Wrapper extends EventEmitter {
 				}
 				this.conn[name] = conn;
 				conn.on('close', () => {
-					//console.log("connection closed")
 					this.channelPool[name] = null;
 					this.conn[name] = null;
 					if (this.callback.listen[name] && this.callback.listen[name].done) {
@@ -221,17 +172,11 @@ class Wrapper extends EventEmitter {
 								this.callback.listen[name].done = true;
 								this.listen(name, this.callback.listen[name].cb);
 							}
-						}, 5000)
-					}
-					if (this.callback.exchange[name]) {
-						setTimeout(() => {
-							this.stream(name, this.callback.exchange[name]);
 						}, 5000)
 					}
 				});
 				conn.on('error', (err) => {
 					this.emit('error', err);
-					//console.log("connection closed by error")
 					this.channelPool[name] = null;
 					this.conn[name] = null;
 					if (this.callback.listen[name] && this.callback.listen[name].done) {
@@ -241,11 +186,6 @@ class Wrapper extends EventEmitter {
 								this.callback.listen[name].done = true;
 								this.listen(name, this.callback.listen[name].cb);
 							}
-						}, 5000)
-					}
-					if (this.callback.exchange[name]) {
-						setTimeout(() => {
-							this.stream(name, this.callback.exchange[name]);
 						}, 5000)
 					}
 				});
