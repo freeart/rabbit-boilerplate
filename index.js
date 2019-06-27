@@ -46,6 +46,10 @@ class Wrapper extends EventEmitter {
 					done: true
 				};
 
+				if (!queue && !exchange) {
+					this.__bail(new Error("queue and exchange are empty"), conn, cb)
+				}
+
 				let consumeQueueName
 				try {
 					if (exchange) {
@@ -56,12 +60,10 @@ class Wrapper extends EventEmitter {
 					} else if (queue) {
 						consumeQueueName = queue
 						await ch.assertQueue(queue, { durable });
-					} else {
-						this.__bail(new Error("queue and exchange are empty"), conn, cb)
 					}
 					await ch.prefetch(prefetch);
 				} catch (e) {
-					this.__bail(new Error("queue and exchange are empty"), conn, cb)
+					this.__bail(e, conn, cb)
 				}
 
 				ch.consume(consumeQueueName, (msg) => {
